@@ -13,6 +13,7 @@ public partial class App : Application
 
     private MainWindow? _mainWindow;
     private TrayIconService? _tray;
+    private ForegroundWatcher? _watcher;
     private bool _magInitialized;
 
     private void OnStartup(object sender, StartupEventArgs e)
@@ -36,7 +37,10 @@ public partial class App : Application
 
         var settings = SettingsService.Load();
 
-        _mainWindow = new MainWindow(settings);
+        _watcher = new ForegroundWatcher(Dispatcher);
+        _watcher.Start();
+
+        _mainWindow = new MainWindow(settings, _watcher);
         MainWindow = _mainWindow;
         _mainWindow.Show();
 
@@ -59,6 +63,7 @@ public partial class App : Application
 
     private void OnExit(object sender, ExitEventArgs e)
     {
+        try { _watcher?.Dispose(); } catch { }
         try { _tray?.Dispose(); } catch { }
         try
         {

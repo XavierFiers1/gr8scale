@@ -1,5 +1,7 @@
 using System;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -12,15 +14,25 @@ namespace Gr8scale;
 public partial class MainWindow : Window
 {
     private readonly Settings _settings;
+    private readonly ForegroundWatcher _watcher;
     private readonly DispatcherTimer _saveDebounce;
     private bool _initializing = true;
     private Border? _filledTrack;
     private Track? _track;
 
-    public MainWindow(Settings settings)
+    public ObservableCollection<AppProfile> Profiles { get; }
+
+    private string _currentForegroundExe = "";
+
+    public MainWindow(Settings settings, ForegroundWatcher watcher)
     {
         InitializeComponent();
         _settings = settings;
+        _watcher = watcher;
+
+        Profiles = new ObservableCollection<AppProfile>(_settings.AppProfiles);
+        foreach (var p in Profiles) p.Icon = IconExtractor.GetIcon(p.ExePath);
+        ProfileList.ItemsSource = Profiles;
 
         IntensitySlider.Value = Math.Clamp(_settings.Intensity, 0, 100);
         AutostartCheck.IsChecked = AutostartService.IsEnabled();
@@ -29,8 +41,12 @@ public partial class MainWindow : Window
         _saveDebounce.Tick += (_, __) =>
         {
             _saveDebounce.Stop();
+            // Keep Settings.AppProfiles in sync with the ObservableCollection
+            _settings.AppProfiles = Profiles.ToList();
             SettingsService.Save(_settings);
         };
+
+        _watcher.ForegroundAppChanged += OnForegroundAppChanged;
 
         Loaded += MainWindow_Loaded;
         _initializing = false;
@@ -38,37 +54,125 @@ public partial class MainWindow : Window
 
     public void ApplyInitialEffect()
     {
-        MagnificationInterop.SetIntensity(IntensitySlider.Value / 100.0);
+        // Probe the current foreground so the initial intensity matches whatever's already focused.
+        var fg = NativeMethods.GetForegroundWindow();
+        if (fg != IntPtr.Zero)
+        {
+            NativeMethods.GetWindowThreadProcessId(fg, out uint pid);
+            uint ownPid = (uint)System.Diagnostics.Process.GetCurrentProcess().Id;
+            if (pid != 0 && pid != ownPid)
+            {
+                _currentForegroundExe = ProcessResolver.GetExeNameForProcess(pid);
+            }
+        }
+
+        double v = EffectiveIntensityFor(_currentForegroundExe);
+        MagnificationInterop.SetIntensity(v / 100.0);
         UpdatePercentLabel(IntensitySlider.Value);
         UpdateFilledTrack();
     }
 
     private void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
-        // Find PART_FilledTrack so we can manually update its width
         _filledTrack = FindVisualChild<Border>(IntensitySlider, "PART_FilledTrack");
         _track = FindVisualChild<Track>(IntensitySlider, "PART_Track");
         UpdateFilledTrack();
     }
 
-    private void IntensitySlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    // --- Foreground tracking ----------------------------------------------
+
+    private void OnForegroundAppChanged(string exeName)
+    {
+        _currentForegroundExe = exeName;
+        double v = EffectiveIntensityFor(exeName);
+        MagnificationInterop.SetIntensity(v / 100.0);
+    }
+
+    private double EffectiveIntensityFor(string exeName)
+    {
+        if (!string.IsNullOrEmpty(exeName))
+        {
+            var p = FindProfile(exeName);
+            if (p != null) return p.Intensity;
+        }
+        return _settings.Intensity;
+    }
+
+    private AppProfile? FindProfile(string exeName)
+        => Profiles.FirstOrDefault(p => string.Equals(p.ExeName, exeName, StringComparison.OrdinalIgnoreCase));
+
+    // --- Default slider ----------------------------------------------------
+
+    private void DefaultSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
         if (_initializing) return;
 
         double v = e.NewValue;
+        _settings.Intensity = v;
+        // While the user is dragging the default slider, show its effect immediately —
+        // even if some other app is currently foreground.
         MagnificationInterop.SetIntensity(v / 100.0);
         UpdatePercentLabel(v);
         UpdateFilledTrack();
 
-        _settings.Intensity = v;
+        QueueSave();
+    }
+
+    // --- Per-profile sliders ----------------------------------------------
+
+    private void ProfileSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_initializing) return;
+        if (sender is not Slider s || s.Tag is not AppProfile profile) return;
+
+        // Slider binding already updated profile.Intensity. Apply live (WYSIWYG).
+        MagnificationInterop.SetIntensity(profile.Intensity / 100.0);
+        QueueSave();
+    }
+
+    // --- Profile add/remove -----------------------------------------------
+
+    private void AddApp_Click(object sender, RoutedEventArgs e)
+    {
+        var picker = new AppPickerWindow(Profiles.Select(p => p.ExeName)) { Owner = this };
+        if (picker.ShowDialog() == true && picker.Selected is { } entry)
+        {
+            var p = new AppProfile
+            {
+                ExeName = entry.ExeName,
+                ExePath = entry.ExePath,
+                DisplayName = entry.DisplayName,
+                Intensity = IntensitySlider.Value, // seed from default slider
+                Icon = entry.Icon,
+            };
+            Profiles.Add(p);
+            QueueSave();
+        }
+    }
+
+    private void RemoveProfile_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button b && b.Tag is AppProfile p)
+        {
+            Profiles.Remove(p);
+            // If we removed the profile of the foreground app, fall back to default.
+            if (string.Equals(p.ExeName, _currentForegroundExe, StringComparison.OrdinalIgnoreCase))
+            {
+                MagnificationInterop.SetIntensity(_settings.Intensity / 100.0);
+            }
+            QueueSave();
+        }
+    }
+
+    // --- Misc plumbing ----------------------------------------------------
+
+    private void QueueSave()
+    {
         _saveDebounce.Stop();
         _saveDebounce.Start();
     }
 
-    private void UpdatePercentLabel(double v)
-    {
-        PercentLabel.Text = $"{(int)Math.Round(v)}%";
-    }
+    private void UpdatePercentLabel(double v) => PercentLabel.Text = $"{(int)Math.Round(v)}%";
 
     private void UpdateFilledTrack()
     {
@@ -108,7 +212,6 @@ public partial class MainWindow : Window
 
     protected override void OnClosing(CancelEventArgs e)
     {
-        // X already routes to Hide() via Close_Click; this is the system close fallback.
         e.Cancel = true;
         Hide();
     }

@@ -1,12 +1,26 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Windows.Media;
 
 namespace Gr8scale;
 
+public sealed class AppProfile
+{
+    public string ExeName { get; set; } = "";       // case-insensitive match key, e.g. "notepad.exe"
+    public string ExePath { get; set; } = "";       // best-known full path (used for icon resolution; matching is by ExeName)
+    public string DisplayName { get; set; } = "";   // shown in UI
+    public double Intensity { get; set; }           // 0..100
+
+    [JsonIgnore] public ImageSource? Icon { get; set; }
+}
+
 public sealed class Settings
 {
-    public double Intensity { get; set; } = 0.0; // 0..100
+    public double Intensity { get; set; } = 0.0;                              // default / fallback
+    public List<AppProfile> AppProfiles { get; set; } = new();
 }
 
 internal static class SettingsService
@@ -21,6 +35,12 @@ internal static class SettingsService
         }
     }
 
+    private static readonly JsonSerializerOptions Options = new()
+    {
+        WriteIndented = true,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    };
+
     public static Settings Load()
     {
         try
@@ -28,8 +48,12 @@ internal static class SettingsService
             if (File.Exists(FilePath))
             {
                 var json = File.ReadAllText(FilePath);
-                var s = JsonSerializer.Deserialize<Settings>(json);
-                if (s != null) return s;
+                var s = JsonSerializer.Deserialize<Settings>(json, Options);
+                if (s != null)
+                {
+                    s.AppProfiles ??= new List<AppProfile>();
+                    return s;
+                }
             }
         }
         catch { }
@@ -40,7 +64,7 @@ internal static class SettingsService
     {
         try
         {
-            var json = JsonSerializer.Serialize(s, new JsonSerializerOptions { WriteIndented = true });
+            var json = JsonSerializer.Serialize(s, Options);
             File.WriteAllText(FilePath, json);
         }
         catch { }
