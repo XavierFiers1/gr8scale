@@ -4,7 +4,6 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
-    <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
@@ -17,17 +16,21 @@
     <Product>gr8scale</Product>
     <SelfContained>false</SelfContained>
     <PublishSingleFile>false</PublishSingleFile>
-    <!-- DPI is owned by app.manifest (PerMonitorV2) because Magnification API requires
-         DPI awareness to be set before our managed code runs. Suppress the WinForms
-         interop warning that nags us to move it. -->
-    <NoWarn>$(NoWarn);WFAC010</NoWarn>
+    <!-- Workstation GC + concurrent GC keeps working set lower for a small UI app
+         that's mostly idle (Server GC is tuned for throughput, not memory). -->
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+    <TieredCompilation>true</TieredCompilation>
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Embed icon as managed resource so it's available inside the single-file exe -->
-    <EmbeddedResource Include="Assets\icon.ico">
-      <LogicalName>gr8scale.icon.ico</LogicalName>
-    </EmbeddedResource>
+    <!-- WPF-native tray icon, replaces the WinForms NotifyIcon dependency -->
+    <PackageReference Include="H.NotifyIcon.Wpf" Version="2.0.131" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- WPF Resource so we can reference it via a pack:// URI from H.NotifyIcon -->
+    <Resource Include="Assets\icon.ico" />
   </ItemGroup>
 
 </Project>

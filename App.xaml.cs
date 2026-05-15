@@ -1,12 +1,8 @@
 using System;
 using System.Diagnostics;
 using System.Threading;
-using Application = System.Windows.Application;
-using MessageBox = System.Windows.MessageBox;
-using MessageBoxButton = System.Windows.MessageBoxButton;
-using MessageBoxImage = System.Windows.MessageBoxImage;
-using StartupEventArgs = System.Windows.StartupEventArgs;
-using ExitEventArgs = System.Windows.ExitEventArgs;
+using System.Threading.Tasks;
+using System.Windows;
 
 namespace Gr8scale;
 
@@ -48,6 +44,17 @@ public partial class App : Application
         _tray.Show();
 
         _mainWindow.ApplyInitialEffect();
+
+        // After the UI is up, release startup allocations back to the OS on a
+        // background thread (GC.Collect on the UI thread can freeze the window).
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(1500); // let startup settle
+            GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: true);
+            GC.WaitForPendingFinalizers();
+            GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: true);
+            NativeMethods.TrimWorkingSet();
+        });
     }
 
     private void OnExit(object sender, ExitEventArgs e)

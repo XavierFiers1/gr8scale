@@ -1,51 +1,66 @@
 using System;
-using System.Drawing;
-using System.IO;
-using System.Reflection;
-using Application = System.Windows.Application;
-using WindowState = System.Windows.WindowState;
-using WinForms = System.Windows.Forms;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using H.NotifyIcon;
 
 namespace Gr8scale;
 
 internal sealed class TrayIconService : IDisposable
 {
     private readonly MainWindow _window;
-    private readonly WinForms.NotifyIcon _notifyIcon;
-    private readonly WinForms.ContextMenuStrip _menu;
+    private readonly TaskbarIcon _icon;
 
     public TrayIconService(MainWindow window)
     {
         _window = window;
-        _menu = new WinForms.ContextMenuStrip();
-        var show = _menu.Items.Add("Show");
-        show.Click += (_, __) => ShowWindow();
-        _menu.Items.Add(new WinForms.ToolStripSeparator());
-        var quit = _menu.Items.Add("Quit");
-        quit.Click += (_, __) => Application.Current.Shutdown();
 
-        _notifyIcon = new WinForms.NotifyIcon
+        var menu = new ContextMenu();
+        var showItem = new MenuItem { Header = "Show" };
+        showItem.Click += (_, __) => ShowWindow();
+        menu.Items.Add(showItem);
+        menu.Items.Add(new Separator());
+        var quitItem = new MenuItem { Header = "Quit" };
+        quitItem.Click += (_, __) => Application.Current.Shutdown();
+        menu.Items.Add(quitItem);
+
+        _icon = new TaskbarIcon
         {
-            Icon = LoadIcon(),
-            Text = "gr8scale",
-            Visible = false,
-            ContextMenuStrip = _menu,
+            IconSource = LoadIconSource(),
+            ToolTipText = "gr8scale",
+            ContextMenu = menu,
+            Visibility = Visibility.Visible,
         };
-        _notifyIcon.DoubleClick += (_, __) => ShowWindow();
+        _icon.TrayMouseDoubleClick += (_, __) => ShowWindow();
+        // Force the underlying Win32 NOTIFYICONDATA registration immediately;
+        // without this, an icon created in code may never appear in the shell tray.
+        _icon.ForceCreate();
     }
 
-    private static Icon LoadIcon()
+    private static ImageSource? LoadIconSource()
     {
         try
         {
-            using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("gr8scale.icon.ico");
-            if (stream != null) return new Icon(stream);
+            // pack:// URI is what H.NotifyIcon needs to convert to an HICON internally.
+            // Force synchronous load so the bytes are in memory before H.NotifyIcon
+            // tries to read them on its background icon-encoding task.
+            var img = new BitmapImage();
+            img.BeginInit();
+            img.UriSource = new Uri("pack://application:,,,/Assets/icon.ico", UriKind.Absolute);
+            img.CacheOption = BitmapCacheOption.OnLoad;
+            img.CreateOptions = BitmapCreateOptions.IgnoreImageCache;
+            img.EndInit();
+            img.Freeze();
+            return img;
         }
-        catch { }
-        return SystemIcons.Application;
+        catch
+        {
+            return null;
+        }
     }
 
-    public void Show() => _notifyIcon.Visible = true;
+    public void Show() => _icon.Visibility = Visibility.Visible;
 
     private void ShowWindow()
     {
@@ -59,8 +74,7 @@ internal sealed class TrayIconService : IDisposable
 
     public void Dispose()
     {
-        _notifyIcon.Visible = false;
-        _notifyIcon.Dispose();
-        _menu.Dispose();
+        try { _icon.Visibility = Visibility.Collapsed; } catch { }
+        _icon.Dispose();
     }
 }
