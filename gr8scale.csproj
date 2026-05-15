@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\icon.ico</ApplicationIcon>
+    <AssemblyName>gr8scale</AssemblyName>
+    <RootNamespace>Gr8scale</RootNamespace>
+    <Version>1.0.0</Version>
+    <Company>gr8scale</Company>
+    <Product>gr8scale</Product>
+    <SelfContained>false</SelfContained>
+    <PublishSingleFile>false</PublishSingleFile>
+    <!-- DPI is owned by app.manifest (PerMonitorV2) because Magnification API requires
+         DPI awareness to be set before our managed code runs. Suppress the WinForms
+         interop warning that nags us to move it. -->
+    <NoWarn>$(NoWarn);WFAC010</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Embed icon as managed resource so it's available inside the single-file exe -->
+    <EmbeddedResource Include="Assets\icon.ico">
+      <LogicalName>gr8scale.icon.ico</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+</Project>
