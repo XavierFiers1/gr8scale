@@ -1,5 +1,7 @@
 # gr8scale
 
+--- App generated with AI ---
+
 A tiny Windows app with one slider that smoothly desaturates everything on your screen, from 0% (full color) to 100% (fully gray) — in real time.
 
 Windows' built-in grayscale filter (Win+Ctrl+C) is on/off only. gr8scale gives you the dial in between.
